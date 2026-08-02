@@ -1,25 +1,31 @@
 ﻿using System;
 using System.Configuration;
 using System.Web;
+using System.Web.UI;
 using MySql.Data.MySqlClient;
 using BCrypt.Net;
+using System.Data.SqlClient;
 
 namespace RangerQuestManagementSystem
 {
     public partial class Login : System.Web.UI.Page
     {
-        // Connection string – must match Web.config
-        private readonly string _connString = ConfigurationManager.ConnectionStrings["RangerQuestDB"].ConnectionString;
+        private readonly string _connString;
+
+        public Login()
+        {
+            // Use the exact name from your Web.config: "RangerQuestDB"
+            var connStringSettings = ConfigurationManager.ConnectionStrings["RangerQuestDB"];
+            if (connStringSettings == null)
+                throw new ConfigurationErrorsException("Connection string 'RangerQuestDB' not found in Web.config.");
+            _connString = connStringSettings.ConnectionString;
+        }
 
         protected void Page_Load(object sender, EventArgs e)
         {
-            // If user is already authenticated, redirect to Dashboard
             if (Session["UserID"] != null)
-            {
                 Response.Redirect("~/Dashboard.aspx");
-            }
 
-            // Populate username from "Remember Me" cookie
             if (!IsPostBack)
             {
                 HttpCookie cookie = Request.Cookies["RangerQuest_User"];
@@ -31,25 +37,19 @@ namespace RangerQuestManagementSystem
             }
         }
 
-        // Method renamed to PascalCase – removes naming violation warning
         protected void BtnLogin_Click(object sender, EventArgs e)
         {
-            // Clear previous errors
             pnlError.Visible = false;
             pnlSuccess.Visible = false;
 
-            // Validate required fields (validators will catch, but double-check)
             if (string.IsNullOrWhiteSpace(txtUsername.Text) || string.IsNullOrWhiteSpace(txtPassword.Text))
-            {
                 return;
-            }
 
             string username = txtUsername.Text.Trim();
             string password = txtPassword.Text;
 
             UserLoginDto user = null;
 
-            // Retrieve user by Username or Email
             string query = @"
                 SELECT u.UserID, u.RoleID, u.PasswordHash, u.FailedLoginAttempts, u.AccountStatus, u.IsDeleted,
                        r.RoleName
@@ -66,7 +66,6 @@ namespace RangerQuestManagementSystem
                 {
                     cmd.Parameters.AddWithValue("@username", username);
                     conn.Open();
-
                     using (MySqlDataReader reader = cmd.ExecuteReader())
                     {
                         if (reader.Read())
@@ -85,13 +84,12 @@ namespace RangerQuestManagementSystem
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                ShowError("An unexpected error occurred. Please try again later.");
+                ShowError($"An unexpected error occurred: {ex.Message}");
                 return;
             }
 
-            // Validate user
             if (user == null)
             {
                 ShowError("Invalid username or password.");
@@ -115,18 +113,8 @@ namespace RangerQuestManagementSystem
                 return;
             }
 
-            // Verify password with BCrypt
-            bool passwordValid;
-            try
-            {
-                passwordValid = BCrypt.Net.BCrypt.Verify(password, user.PasswordHash);
-            }
-            catch (SaltParseException)
-            {
-                passwordValid = false;
-            }
+            bool passwordValid = VerifyPasswordWithBCrypt(password, user.PasswordHash);
 
-            // Failed attempt handling
             if (!passwordValid)
             {
                 int newFailedCount = user.FailedLoginAttempts + 1;
@@ -158,9 +146,9 @@ namespace RangerQuestManagementSystem
                         return;
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    ShowError("An error occurred during login. Please try again.");
+                    ShowError($"An error occurred: {ex.Message}");
                     return;
                 }
 
@@ -168,7 +156,7 @@ namespace RangerQuestManagementSystem
                 return;
             }
 
-            // Successful login – reset attempts and update LastLogin
+            // Successful login
             try
             {
                 string updateQuery = "UPDATE Users SET FailedLoginAttempts = 0, LastLogin = @now WHERE UserID = @userID";
@@ -181,13 +169,11 @@ namespace RangerQuestManagementSystem
                     cmd.ExecuteNonQuery();
                 }
 
-                // Set session
                 Session["UserID"] = user.UserID;
                 Session["RoleID"] = user.RoleID;
                 Session["RoleName"] = user.RoleName;
                 Session["Username"] = txtUsername.Text.Trim();
 
-                // Remember Me cookie
                 if (chkRememberMe.Checked)
                 {
                     HttpCookie cookie = new HttpCookie("RangerQuest_User");
@@ -205,25 +191,39 @@ namespace RangerQuestManagementSystem
                     }
                 }
 
-                // Audit log (optional)
                 LogUserAction(user.UserID, "Login", "Users", user.UserID);
-
                 Response.Redirect("~/Dashboard.aspx");
             }
-            catch
+            catch (Exception ex)
             {
-                ShowError("An error occurred during login. Please try again.");
+                ShowError($"An error occurred during login: {ex.Message}");
             }
         }
 
-        // Helper to display error (uses lblError in the new design)
+        private bool VerifyPasswordWithBCrypt(string password, string storedHash)
+        {
+            try
+            {
+                return BCrypt.Net.BCrypt.Verify(password, storedHash);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private void ShowError(string message)
         {
             pnlError.Visible = true;
             lblError.Text = message;
         }
 
-        // Optional audit logging
+        private void ShowSuccess(string message)
+        {
+            pnlSuccess.Visible = true;
+            lblSuccess.Text = message;
+        }
+
         private void LogUserAction(int userId, string action, string table, int recordId)
         {
             try
@@ -245,13 +245,9 @@ namespace RangerQuestManagementSystem
                     cmd.ExecuteNonQuery();
                 }
             }
-            catch
-            {
-                // Non-critical; ignore
-            }
+            catch { /* non-critical */ }
         }
 
-        // DTO for user data
         private class UserLoginDto
         {
             public int UserID { get; set; }

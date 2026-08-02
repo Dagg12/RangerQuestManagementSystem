@@ -7,7 +7,7 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 
-namespace RangerQuest
+namespace RangerQuestManagementSystem
 {
 
 
