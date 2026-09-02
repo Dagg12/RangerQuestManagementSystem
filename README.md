@@ -216,7 +216,7 @@ This project is being developed to strengthen skills in:
 **Vhukhudo Kevin Thamaga**
 **Katleho Makhetha**
 **Nhlakanipho Fortune Magagula**
-Samukelo Mkhatshwa
+**Samukelo Mkhatshwa**
 
 🎓 BSc Information Technology Student
 
